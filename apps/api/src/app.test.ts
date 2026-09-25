@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Conversation, EncryptedMessage, IdentityType, NewEnvelope, PreKeyUpload, ProtocolDevice, PublicIdentity, RelayEnvelope, Repository, PublicUser, StoredUser } from './repository.js';
 import { buildApp } from './app.js';
+import { loadConfig } from './config.js';
 
 class MemoryRepository implements Repository {
   users: StoredUser[] = []; sessions = new Map<string, string>(); conversations: Array<Conversation & { memberIds: string[] }> = []; messages: EncryptedMessage[] = [];
@@ -17,6 +18,7 @@ class MemoryRepository implements Repository {
   async listConversationMemberIds(conversationId: string) { return this.conversations.find(conversation => conversation.id === conversationId)?.memberIds ?? []; }
   async listEncryptedMessages(conversationId: string) { return this.messages.filter(message => message.conversationId === conversationId); }
   async createEncryptedMessage(userId: string, input: NewEnvelope) { if (!(await this.isConversationMember(input.conversationId, userId))) return null; const message = { ...input, id: crypto.randomUUID(), createdAt: new Date().toISOString() }; this.messages.push(message); return message; }
+  async canAccessPeer(userId: string, peerId: string) { return userId === peerId || this.conversations.some(item => item.memberIds.includes(userId) && item.memberIds.includes(peerId)); }
   async registerProtocolDevice(userId: string, requested = 1, encryptedDeviceName?: string) { const current = this.devices.get(userId) ?? []; if (!current.some(item => item.deviceId === requested)) current.push({ deviceId: requested, encryptedDeviceName, deviceType: 'web', registered: false, linked: requested !== 1, enabled: true, createdAt: Date.now() }); this.devices.set(userId, current); return requested; }
   async listProtocolDevices(userId: string) { return this.devices.get(userId) ?? []; }
   async provisionPublicIdentity(userId: string, deviceId: number, _registrationId: number, identityType: IdentityType, identity: PublicIdentity) { const key = `${userId}:${identityType}`; const current = this.identities.get(key); if (current && JSON.stringify(current) !== JSON.stringify(identity)) return 'conflict' as const; this.identities.set(key, identity); const device = (this.devices.get(userId) ?? []).find(item => item.deviceId === deviceId); if (device) device.registered = true; return current ? 'matched' as const : 'created' as const; }
@@ -36,7 +38,7 @@ describe('authentication boundary', () => {
     const app = buildApp(config, new MemoryRepository());
     const register = await app.inject({ method: 'POST', url: '/auth/register', payload: { username: 'Alice', displayName: 'Alice', password: 'correct horse battery staple' } });
     expect(register.statusCode).toBe(201); expect(register.json()).not.toHaveProperty('user.passwordHash');
-    const rawCookie = register.headers['set-cookie']; const cookie = Array.isArray(rawCookie) ? rawCookie[0]! : rawCookie!; expect(cookie).toContain('HttpOnly'); expect(cookie).toContain('SameSite=Strict');
+    const rawCookie = register.headers['set-cookie']; const cookie = Array.isArray(rawCookie) ? rawCookie[0]! : rawCookie!; expect(cookie).toContain('privy_session='); expect(cookie).toContain('HttpOnly'); expect(cookie).toContain('SameSite=Strict'); expect(cookie).not.toContain('__Host-');
     const me = await app.inject({ method: 'GET', url: '/me', headers: { cookie: cookie.split(';')[0]! } });
     expect(me.statusCode).toBe(200); expect(me.json().user.username).toBe('Alice'); await app.close();
   });
@@ -50,6 +52,14 @@ describe('authentication boundary', () => {
     const response = await app.inject({ method: 'POST', url: '/auth/register', payload: { username: 'Alice', displayName: 'Alice', password: 'correct horse battery staple', privateKey: 'never-upload' } });
     expect(response.statusCode).toBe(400); await app.close();
   });
+  it('rejects cross-origin state changes outside the test environment', async () => {
+    const hardened = { ...config, NODE_ENV: 'development' as const, API_HOST: '127.0.0.1', TRUST_PROXY: false, DATABASE_SSL: false }; const app = buildApp(hardened, new MemoryRepository());
+    const rejected = await app.inject({ method: 'POST', url: '/auth/logout', headers: { 'content-type': 'application/json', origin: 'https://evil.example' }, payload: {} }); expect(rejected.statusCode).toBe(403);
+    const accepted = await app.inject({ method: 'POST', url: '/auth/logout', headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN }, payload: {} }); expect(accepted.statusCode).toBe(204); await app.close();
+  });
+  it('fails closed for insecure production configuration', () => {
+    expect(() => loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgres://db/privy', WEB_ORIGIN: 'http://privy.example', SESSION_PEPPER: 'replace-with-at-least-32-random-bytes-before-production', DATABASE_SSL: 'false' })).toThrow();
+  });
 });
 
 describe('phase 3 E2EE boundary', () => {
@@ -57,6 +67,16 @@ describe('phase 3 E2EE boundary', () => {
   it('accepts public keys but rejects private key material at the API boundary', async () => { const app = buildApp(config, new MemoryRepository()); const alice = await register(app, 'Alice'); await app.inject({ method: 'POST', url: '/e2ee/devices', headers: { cookie: alice.cookie }, payload: { deviceId: 1, deviceType: 'web' } }); const response = await app.inject({ method: 'POST', url: '/e2ee/identity', headers: { cookie: alice.cookie }, payload: { userId: alice.user.id, deviceId: 1, registrationId: 42, identity: { version: 1, x25519PublicKey: 'A'.repeat(44), ed25519PublicKey: 'B'.repeat(44), privateKey: 'must-never-upload' } } }); expect(response.statusCode).toBe(400); await app.close(); });
   it('stores and returns only opaque ciphertext to an authorized participant', async () => { const repository = new MemoryRepository(); const app = buildApp(config, repository); const alice = await register(app, 'Alice'); const bob = await register(app, 'Bob'); await app.inject({ method: 'POST', url: '/conversations', headers: { cookie: alice.cookie }, payload: { peerUserId: bob.user.id } }); const secret = 'mensagem ultrassecreta'; const ciphertext = Buffer.from(crypto.getRandomValues(new Uint8Array(96))).toString('base64'); const payload = { targetUserId: bob.user.id, targetDeviceId: 1, senderUserId: alice.user.id, senderDeviceId: 1, ciphertext, messageType: 'ciphertext', deliveryClass: 'user-visible', timestamp: Date.now(), clientMessageId: crypto.randomUUID() }; const sent = await app.inject({ method: 'POST', url: '/e2ee/envelopes', headers: { cookie: alice.cookie }, payload }); expect(sent.statusCode).toBe(201); expect(JSON.stringify(repository.relayEnvelopes)).not.toContain(secret); expect(repository.relayEnvelopes[0]?.ciphertext).toBe(ciphertext); const mailbox = await app.inject({ method: 'GET', url: '/e2ee/mailbox?deviceId=1', headers: { cookie: bob.cookie } }); expect(mailbox.statusCode).toBe(200); expect(mailbox.json().envelopes[0].ciphertext).toBe(ciphertext); expect(mailbox.body).not.toContain(secret); await app.close(); });
   it('prevents a non-participant from injecting an envelope', async () => { const repository = new MemoryRepository(); const app = buildApp(config, repository); const alice = await register(app, 'Alice'); const bob = await register(app, 'Bob'); const mallory = await register(app, 'Mallory'); await app.inject({ method: 'POST', url: '/conversations', headers: { cookie: alice.cookie }, payload: { peerUserId: bob.user.id } }); const response = await app.inject({ method: 'POST', url: '/e2ee/envelopes', headers: { cookie: mallory.cookie }, payload: { targetUserId: bob.user.id, targetDeviceId: 1, senderUserId: mallory.user.id, senderDeviceId: 1, ciphertext: Buffer.from('opaque').toString('base64'), messageType: 'ciphertext', deliveryClass: 'user-visible', timestamp: Date.now(), clientMessageId: crypto.randomUUID() } }); expect(response.statusCode).toBe(404); await app.close(); });
+});
+
+describe('phase 4 WebRTC signaling', () => {
+  async function register(app: ReturnType<typeof buildApp>, username: string) { const response = await app.inject({ method: 'POST', url: '/auth/register', payload: { username, displayName: username, password: 'correct horse battery staple' } }); const raw = response.headers['set-cookie']; return { cookie: (Array.isArray(raw) ? raw[0]! : raw!).split(';')[0]!, user: response.json().user as PublicUser }; }
+  it('forwards call signaling only through an authorized conversation', async () => {
+    const app = buildApp(config, new MemoryRepository()); const alice = await register(app, 'Alice'); const bob = await register(app, 'Bob'); const created = await app.inject({ method: 'POST', url: '/conversations', headers: { cookie: alice.cookie }, payload: { peerUserId: bob.user.id } }); await app.ready();
+    const aliceSocket = await app.injectWS('/realtime', { headers: { cookie: alice.cookie, origin: config.WEB_ORIGIN } }); const bobSocket = await app.injectWS('/realtime', { headers: { cookie: bob.cookie, origin: config.WEB_ORIGIN } }); const callId = crypto.randomUUID();
+    const received = new Promise<Record<string, unknown>>((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('call signal timeout')), 1_000); bobSocket.on('message', data => { const message = JSON.parse(data.toString()) as Record<string, unknown>; if (message.type === 'call.signal') { clearTimeout(timeout); resolve(message); } }); });
+    aliceSocket.send(JSON.stringify({ type: 'call.offer', callId, conversationId: created.json().conversation.id, targetUserId: bob.user.id, media: 'audio', sdp: { type: 'offer', sdp: 'v=0\r\n' } })); const signal = await received; expect(signal).toMatchObject({ type: 'call.signal', signalType: 'call.offer', callId, fromUserId: alice.user.id }); expect(signal).not.toHaveProperty('targetUserId'); aliceSocket.close(); bobSocket.close(); await app.close();
+  });
 });
 
 describe('phase 2 transport boundary', () => {

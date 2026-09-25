@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at timestamptz NOT NULL DEFAULT now(),
   revoked_at timestamptz
 );
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_seen_at timestamptz NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS devices (

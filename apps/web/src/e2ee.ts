@@ -42,10 +42,9 @@ class PrivyRelay {
   createProvisioningSession = unsupported; connectNewDevice = unsupported; sendProvisioningMessage = unsupported; getProvisioningMessage = unsupported; completeProvisioning = unsupported; acknowledgeProvisioning = unsupported; rollbackProvisioning = unsupported; deleteProvisioningSession = unsupported;
 }
 
-export async function createPrivyE2EE(userId: string, onMessage: (message: DecryptedEnvelope) => void): Promise<DefaultSignalProtocolClient> {
+export async function createPrivyE2EE(userId: string, onMessage: (message: DecryptedEnvelope) => void | Promise<void>): Promise<DefaultSignalProtocolClient> {
   const storage = await indexedDbStore();
-  const client = await createSignalProtocolClient({ identity: { userId, deviceId: 1 }, adapters: { storage, relay: new PrivyRelay() as unknown as SignalProtocolRelayServer }, hooks: { onMessageDecrypted: onMessage } });
-  await client.syncToServer();
-  client.startRelaySubscription();
-  return client;
+  const relay = new PrivyRelay();
+  await relay.registerDevice(userId, { deviceId: 1, deviceType: 'web' });
+  return createSignalProtocolClient({ identity: { userId, deviceId: 1 }, adapters: { storage, relay: relay as unknown as SignalProtocolRelayServer }, hooks: { onMessageDecrypted: onMessage } });
 }

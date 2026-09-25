@@ -1,0 +1,38 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
+      WEB_ORIGIN: ${WEB_ORIGIN:?set WEB_ORIGIN to the public HTTPS origin}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL from the secret manager}
+      DATABASE_SSL: "true"
+      SESSION_PEPPER: ${SESSION_PEPPER:?set a random 32+ byte secret}
+      TRUST_PROXY: "true"
+      STUN_URL: ${STUN_URL:?set the STUN URL}
+      TURN_URL: ${TURN_URL:?set the TLS TURN URL}
+      TURN_SECRET: ${TURN_SECRET:?set the coturn shared secret}
+    networks: [private]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ["127.0.0.1:8080:8080"]
+    networks: [private]
+    read_only: true
+    tmpfs: [/var/cache/nginx, /var/run]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  private:
+    internal: true

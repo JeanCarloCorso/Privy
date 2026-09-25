@@ -26,7 +26,7 @@ O servidor vê IDs de conta/dispositivo, horários, tamanho e tipo externo dos e
 - JavaScript não garante constant-time nem limpeza determinística de memória.
 - IndexedDB não protege contra JavaScript malicioso na mesma origem. Um servidor comprometido que altere o bundle pode capturar chaves e plaintext.
 - Metadados permanecem visíveis. Esta fase não implementa sealed sender ou anonimização de rede.
-- O histórico descriptografado atual permanece na sessão da interface; sincronização cifrada de histórico entre dispositivos ainda não foi implementada.
+- O histórico local é cifrado com AES-256-GCM e uma chave não exportável por conta. Sincronização de histórico entre dispositivos ainda não foi implementada.
 - Vinculação segura, backup cifrado e rotação de identidade falham fechados até serem implementados.
 
 ## Validação

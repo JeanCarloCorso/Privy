@@ -36,4 +36,4 @@ Antes de qualquer campo privado ser enviado: **o servidor precisa conhecer esse 
 
 ## Aviso honesto
 
-Ainda não houve auditoria independente. E2EE não protege endpoints comprometidos e uma aplicação web não consegue impedir que um servidor comprometido entregue JavaScript malicioso.
+Ainda não houve auditoria independente; por isso `npm run release:check` bloqueia um lançamento de produção. E2EE não protege endpoints comprometidos e uma aplicação web não consegue impedir que um servidor comprometido entregue JavaScript malicioso.

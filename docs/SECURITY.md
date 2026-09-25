@@ -1,10 +1,10 @@
 # Segurança, criptografia e transparência
 
-Cada instalação do navegador será um dispositivo. O cliente gera identidade, prekeys e estado do ratchet usando CSPRNG da plataforma por meio da biblioteca escolhida. Somente material público é publicado. Chaves privadas e plaintext nunca fazem parte de requests, telemetria ou logs.
+Cada instalação do navegador é um dispositivo. O cliente gera identidade, prekeys e estado do ratchet usando o CSPRNG da plataforma por meio do SDK OpenE2EE. Somente material público é publicado. Chaves privadas e plaintext nunca fazem parte de requests, telemetria ou logs.
 
 Senhas autenticam contas; não são chaves de mensagem. O backend armazena Argon2id da senha. Um futuro backup de chaves será opcional, cifrado no cliente com chave derivada por Argon2id calibrado e salt aleatório; o servidor verá apenas o blob cifrado. Recuperar a conta não recupera mensagens se o usuário não tiver um dispositivo ou backup criptográfico válido.
 
-## Fluxo futuro de mensagem
+## Fluxo de mensagem
 
 1. O cliente obtém bundles públicos dos dispositivos.
 2. Valida assinatura e mudança de identidade.
@@ -19,4 +19,6 @@ O servidor vê IDs, participantes, chaves públicas, timestamps de transporte, t
 
 CSP estrita, scripts locais, lockfile, nenhum analytics/script de terceiros, escaping do React, cookies HttpOnly e releases reproduzíveis reduzem risco. Porém, se alguém modificar o JavaScript servido, poderá exfiltrar chaves ou plaintext. Privy não será descrito como “100% seguro”. Auditoria e transparência de builds são defesas adicionais.
 
-A Fase 1 protege autenticação e sessão, mas ainda não declara mensagens E2EE. Telas de mensagens permanecem desabilitadas até os testes criptográficos passarem.
+O histórico local é cifrado com AES-256-GCM e uma `CryptoKey` não exportável, separada por conta. Isso protege uma cópia isolada dos registros, mas scripts da mesma origem ainda podem solicitar o uso da chave. O cliente mostra um código de segurança de 60 dígitos derivado das duas identidades públicas para comparação fora de banda.
+
+Até existir provisionamento E2EE de dispositivos com testes completos, produção suporta somente o dispositivo primário. Fluxos parciais de vinculação, rotação e backup falham fechados.
