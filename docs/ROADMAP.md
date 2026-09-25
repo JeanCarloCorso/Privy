@@ -8,9 +8,9 @@ Monorepo, API, frontend, PostgreSQL, cadastro/login/logout/me com Argon2id, sess
 
 Conversas diretas idempotentes, membership transacional, descoberta de usuários, WebSocket autenticado, envelopes opacos e persistência. Foram adicionados testes de autorização negativa, schema estrito contra plaintext, rate limit e IDs idempotentes. O hub WebSocket atual é local ao processo; Redis/NATS será necessário antes de múltiplas réplicas.
 
-## Fase 3 — E2EE
+## Fase 3 — E2EE (implementada no escopo inicial)
 
-Biblioteca browser/WASM, identidade por dispositivo, prekeys, ratchet, verificação, IndexedDB e revogação. Critério: captura HTTP/WS e dump não contêm texto; B decifra; terceiro não; servidor não tem private keys; testes de perda, reordenação, replay e mudança de identidade.
+SDK browser, identidade composta, prekeys EC/ML-KEM, PQXDH, Double/Triple Ratchet, IndexedDB, envelopes persistentes e consumo atômico de chaves de uso único. Testes cobrem a fronteira sem plaintext, rejeição de chave privada e autorização negativa. Auditoria independente, safety numbers/QR, vinculação/revogação completa de dispositivos e backup cifrado permanecem pendentes antes de produção.
 
 ## Fase 4 — Chamadas
 

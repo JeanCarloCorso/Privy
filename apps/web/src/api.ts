@@ -1,7 +1,7 @@
 export type User = { id: string; username: string; displayName: string; createdAt: string };
 export type Conversation = { id: string; createdAt: string; peer: User };
 const base = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${base}${path}`, { ...init, credentials: 'include', headers: { 'content-type': 'application/json', ...init?.headers } });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? 'request_failed');
   return response.status === 204 ? undefined as T : response.json();
