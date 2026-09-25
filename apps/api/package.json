@@ -1,0 +1,5 @@
+{
+  "name":"@privy/api","private":true,"type":"module","scripts":{"dev":"node --watch --import tsx src/server.ts","build":"tsc -p tsconfig.json","start":"node dist/server.js","test":"vitest run src","typecheck":"tsc --noEmit","db:migrate":"node --import tsx src/db/migrate.ts"},
+  "dependencies":{"@fastify/cookie":"11.0.2","@fastify/cors":"^11.1.0","@fastify/helmet":"^13.0.2","@fastify/rate-limit":"^10.3.0","@fastify/websocket":"^11.2.0","@node-rs/argon2":"^2.0.2","dotenv":"^17.2.2","fastify":"^5.6.1","pg":"^8.16.3","zod":"^4.1.11"},
+  "devDependencies":{"@types/node":"^24.6.0","@types/pg":"^8.15.5","tsx":"^4.20.6","typescript":"^5.9.3","vitest":"^4.1.11"}
+}

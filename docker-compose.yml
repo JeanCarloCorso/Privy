@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: privy
+      POSTGRES_PASSWORD: privy_dev_only
+      POSTGRES_DB: privy
+    ports: ["127.0.0.1:5433:5432"]
+    volumes: ["privy-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U privy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  privy-postgres:
