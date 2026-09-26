@@ -1,4 +1,5 @@
 let context: AudioContext | null = null;
+let stopActiveRingtone: (() => void) | null = null;
 
 function audioContext() {
   context ??= new AudioContext();
@@ -35,6 +36,7 @@ export function playMessageSound() {
 }
 
 export function startRingtone() {
+  stopActiveRingtone?.();
   let stopped = false;
   const activeTones = new Set<() => void>();
   const ring = () => {
@@ -47,10 +49,19 @@ export function startRingtone() {
   };
   ring();
   const timer = window.setInterval(ring, 2_200);
-  return () => {
+  const stop = () => {
+    if (stopped) return;
     stopped = true;
     window.clearInterval(timer);
     for (const cancel of activeTones) cancel();
     activeTones.clear();
+    if (stopActiveRingtone === stop) stopActiveRingtone = null;
   };
+  stopActiveRingtone = stop;
+  return stop;
 }
+
+export function stopRingtone() { stopActiveRingtone?.(); }
+
+// Development hot reload must dispose the previous module's timer as well.
+if (import.meta.hot) import.meta.hot.dispose(() => stopRingtone());
