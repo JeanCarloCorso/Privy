@@ -1,5 +1,5 @@
-import { createSignalProtocolClient, type DecryptedEnvelope, type DefaultSignalProtocolClient } from '@open-e2ee/signal-protocol-sdk';
-import { indexedDbStore } from '@open-e2ee/signal-protocol-sdk/local/store/web';
+import { createSignalProtocolClient, ProtocolAddress, type Ciphertext, type DecryptedEnvelope, type DefaultSignalProtocolClient } from '@open-e2ee/signal-protocol-sdk';
+import { IndexedDbSignalProtocolStore } from '@open-e2ee/signal-protocol-sdk/local/store/web';
 import type { AccountIdentityProvisioning, DeviceInfo, DeviceRegistration, Envelope, PreKeyBundle, PreKeyInventory, PreKeyUpload, SignalProtocolRelayServer } from '@open-e2ee/signal-protocol-sdk/remote/relay';
 import type { CompositeIdentityV1, IdentityType } from '@open-e2ee/signal-protocol-sdk/keys/types';
 import { api, request } from './api';
@@ -10,14 +10,13 @@ const toBase64 = (value: Uint8Array | string) => {
   for (let offset = 0; offset < value.length; offset += 0x8000) binary += String.fromCharCode(...value.subarray(offset, offset + 0x8000));
   return btoa(binary);
 };
-const fromBase64 = (value: string) => Uint8Array.from(atob(value), character => character.charCodeAt(0));
 const unsupported = async (): Promise<never> => { throw new Error('Recurso de grupos ou vinculação de dispositivo ainda não disponível'); };
 
 class PrivyRelay {
   private sockets = new Set<WebSocket>();
   async send(envelope: Envelope) { return request<{ messageId: string; serverTimestamp: number }>('/e2ee/envelopes', { method: 'POST', body: JSON.stringify({ ...envelope, ciphertext: toBase64(envelope.ciphertext), clientMessageId: envelope.clientMessageId ?? crypto.randomUUID() }) }); }
   subscribe(_userId: string, deviceId: number, onEnvelope: (envelope: Envelope) => void) {
-    const deliver = (raw: Envelope & { ciphertext: string }) => onEnvelope({ ...raw, ciphertext: fromBase64(raw.ciphertext) });
+    const deliver = (raw: Envelope & { ciphertext: string }) => onEnvelope(raw);
     const socket = new WebSocket(api.realtimeUrl()); this.sockets.add(socket);
     socket.addEventListener('open', () => { void request<{ envelopes: Array<Envelope & { ciphertext: string }> }>(`/e2ee/mailbox?deviceId=${deviceId}`).then(result => result.envelopes.forEach(deliver)); });
     socket.addEventListener('message', event => { try { const message = JSON.parse(String(event.data)) as { type?: string; envelope?: Envelope & { ciphertext: string } }; if (message.type === 'e2ee.envelope' && message.envelope?.targetDeviceId === deviceId) deliver(message.envelope); } catch { /* malformed transport events are ignored */ } });
@@ -42,9 +41,40 @@ class PrivyRelay {
   createProvisioningSession = unsupported; connectNewDevice = unsupported; sendProvisioningMessage = unsupported; getProvisioningMessage = unsupported; completeProvisioning = unsupported; acknowledgeProvisioning = unsupported; rollbackProvisioning = unsupported; deleteProvisioningSession = unsupported;
 }
 
+const clientRelays = new WeakMap<DefaultSignalProtocolClient, PrivyRelay>();
+
 export async function createPrivyE2EE(userId: string, onMessage: (message: DecryptedEnvelope) => void | Promise<void>): Promise<DefaultSignalProtocolClient> {
-  const storage = await indexedDbStore();
+  const legacyOwnerKey = 'privy:e2ee:legacy-owner';
+  const legacyOwner = localStorage.getItem(legacyOwnerKey);
+  if (!legacyOwner) localStorage.setItem(legacyOwnerKey, userId);
+  const storage = new IndexedDbSignalProtocolStore();
+  if (legacyOwner && legacyOwner !== userId) (storage as unknown as { dbName: string }).dbName = `signal-protocol-storage-${userId}`;
+  await storage.initialize();
   const relay = new PrivyRelay();
   await relay.registerDevice(userId, { deviceId: 1, deviceType: 'web' });
-  return createSignalProtocolClient({ identity: { userId, deviceId: 1 }, adapters: { storage, relay: relay as unknown as SignalProtocolRelayServer }, hooks: { onMessageDecrypted: onMessage } });
+  const client = await createSignalProtocolClient({ identity: { userId, deviceId: 1 }, adapters: { storage, relay: relay as unknown as SignalProtocolRelayServer } });
+  clientRelays.set(client, relay);
+  const unsubscribe = relay.subscribe(userId, 1, async envelope => {
+    try {
+      const content = await client.decryptMessage(ProtocolAddress.create(envelope.senderUserId, envelope.senderDeviceId), envelope.ciphertext as Ciphertext);
+      await onMessage({ messageId: envelope.id ?? envelope.clientMessageId ?? crypto.randomUUID(), sessionId: `${envelope.senderUserId}.${envelope.senderDeviceId}`, senderId: envelope.senderUserId, senderDeviceId: envelope.senderDeviceId, conversationId: envelope.senderUserId, content, timestamp: envelope.timestamp, serverTimestamp: envelope.serverTimestamp, receivedAt: Date.now(), isGroup: false, messageType: envelope.messageType });
+      if (envelope.id) await relay.markDelivered(envelope.id);
+    } catch (error) { console.error('E2EE receive failed', error); }
+  });
+  client.stopRelaySubscription = unsubscribe;
+  return client;
+}
+
+export async function sendPrivyMessage(client: DefaultSignalProtocolClient, recipientUserId: string, content: string) {
+  const relay = clientRelays.get(client); if (!relay) throw new Error('E2EE relay unavailable');
+  const devices = (await relay.getDevices(recipientUserId)).filter(device => device.enabled && device.registered);
+  if (!devices.length) throw new Error(`Recipient ${recipientUserId} has no available prekey bundles`);
+  for (const device of devices) {
+    const address = ProtocolAddress.create(recipientUserId, device.deviceId); const existing = await client.hasSession(address);
+    if (!existing) await client.establishSession(address, await relay.fetchPreKeyBundle(recipientUserId, device.deviceId));
+    const ciphertext = await client.encryptMessage(address, content);
+    const initiatedKey = `privy:e2ee:initiated:${client.userId}:${recipientUserId}:${device.deviceId}`;
+    await relay.send({ targetUserId: recipientUserId, targetDeviceId: device.deviceId, senderUserId: client.userId, senderDeviceId: client.deviceId, ciphertext, messageType: localStorage.getItem(initiatedKey) ? 'ciphertext' : 'prekey_bundle', deliveryClass: 'user-visible', timestamp: Date.now(), clientMessageId: crypto.randomUUID() });
+    localStorage.setItem(initiatedKey, '1');
+  }
 }

@@ -1,1 +1,1 @@
-{"root":["./src/api.ts","./src/calls.tsx","./src/e2ee.ts","./src/local-history.ts","./src/main.tsx","./src/vite-env.d.ts"],"version":"5.9.3"}
+{"root":["./src/api.ts","./src/calls.tsx","./src/e2ee.ts","./src/local-history.ts","./src/main.tsx","./src/sounds.ts","./src/vite-env.d.ts"],"version":"5.9.3"}

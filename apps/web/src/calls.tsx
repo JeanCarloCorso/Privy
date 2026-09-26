@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type Conversation } from './api';
+import { startRingtone } from './sounds';
 
 type MediaKind = 'audio' | 'video';
 type WireSignal = { type: 'call.signal'; signalType: 'call.offer' | 'call.answer' | 'call.ice' | 'call.reject' | 'call.end'; callId: string; conversationId: string; fromUserId: string; media?: MediaKind; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
@@ -22,6 +23,7 @@ export function useWebRtcCalls(conversations: Conversation[], selected: Conversa
   const toggleMute = () => { const next = !state.muted; for (const track of localStream.current?.getAudioTracks() ?? []) track.enabled = !next; setState(current => ({ ...current, muted: next })); };
   const toggleCamera = () => { const next = !state.cameraOff; for (const track of localStream.current?.getVideoTracks() ?? []) track.enabled = !next; setState(current => ({ ...current, cameraOff: next })); };
   useEffect(() => { if (localVideo.current && localStream.current) localVideo.current.srcObject = localStream.current; if (remoteVideo.current && remoteStream.current) remoteVideo.current.srcObject = remoteStream.current; });
+  useEffect(() => state.phase === 'ringing' ? startRingtone() : undefined, [state.phase]);
   return { state, localVideo, remoteVideo, start, accept, reject, finish, toggleMute, toggleCamera };
 }
 

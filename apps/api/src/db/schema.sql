@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_seen_at timestamptz NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data bytea;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime varchar(16);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_updated_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS devices (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

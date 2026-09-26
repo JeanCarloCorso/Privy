@@ -6,12 +6,14 @@ import { loadConfig } from './config.js';
 class MemoryRepository implements Repository {
   users: StoredUser[] = []; sessions = new Map<string, string>(); conversations: Array<Conversation & { memberIds: string[] }> = []; messages: EncryptedMessage[] = [];
   devices = new Map<string, ProtocolDevice[]>(); identities = new Map<string, PublicIdentity>(); prekeys = new Map<string, PreKeyUpload[]>(); relayEnvelopes: RelayEnvelope[] = [];
-  async createUser(i: { username: string; normalized: string; displayName: string; passwordHash: string }) { const user = { id: crypto.randomUUID(), username: i.username, displayName: i.displayName, passwordHash: i.passwordHash, createdAt: new Date().toISOString() }; this.users.push(user); return this.public(user); }
+  async createUser(i: { username: string; normalized: string; displayName: string; passwordHash: string }) { const user = { id: crypto.randomUUID(), username: i.username, displayName: i.displayName, passwordHash: i.passwordHash, createdAt: new Date().toISOString(), avatarUpdatedAt: null }; this.users.push(user); return this.public(user); }
   async findUserByNormalized(n: string) { return this.users.find(u => u.username.toLowerCase() === n) ?? null; }
   async createSession(userId: string, tokenHash: string) { this.sessions.set(tokenHash, userId); }
   async findUserBySession(tokenHash: string) { const id = this.sessions.get(tokenHash); const user = this.users.find(u => u.id === id); return user ? this.public(user) : null; }
   async revokeSession(tokenHash: string) { this.sessions.delete(tokenHash); }
   async searchUsers(query: string, excludeUserId: string, limit: number) { return this.users.filter(user => user.id !== excludeUserId && (user.username.toLowerCase().startsWith(query) || user.displayName.toLowerCase().startsWith(query))).slice(0, limit).map(user => this.public(user)); }
+  async updateAvatar(userId: string, _mime: string, _data: Buffer) { const user = this.users.find(item => item.id === userId); if (!user) return null; user.avatarUpdatedAt = new Date().toISOString(); return this.public(user); }
+  async getAvatar() { return null; }
   async createDirectConversation(userId: string, peerId: string) { const peer = this.users.find(user => user.id === peerId); if (!peer || userId === peerId) return null; const existing = this.conversations.find(conversation => conversation.memberIds.includes(userId) && conversation.memberIds.includes(peerId)); if (existing) return existing; const conversation = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), peer: this.public(peer), memberIds: [userId, peerId] }; this.conversations.push(conversation); return conversation; }
   async listConversations(userId: string) { return this.conversations.filter(conversation => conversation.memberIds.includes(userId)); }
   async isConversationMember(conversationId: string, userId: string) { return this.conversations.some(conversation => conversation.id === conversationId && conversation.memberIds.includes(userId)); }
